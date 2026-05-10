@@ -121,7 +121,18 @@ const PROFILES = [
         "<path>D:/absolute/path/to/file.txt</path>",
         "</read_file>",
         "",
-        "2. Write/create a file:",
+        "2. List files in a directory:",
+        "<list_files>",
+        "<path>D:/absolute/path/to/dir</path>",
+        "</list_files>",
+        "",
+        "3. Search file contents (grep):",
+        "<search_content>",
+        "<pattern>search pattern</pattern>",
+        "<path>D:/absolute/path/to/dir</path>",
+        "</search_content>",
+        "",
+        "4. Write/create a file:",
         "<write_file>",
         "<path>D:/path/to/file.txt</path>",
         "<content>",
@@ -129,7 +140,7 @@ const PROFILES = [
         "</content>",
         "</write_file>",
         "",
-        "3. Edit a file (find and replace):",
+        "5. Edit a file (find and replace):",
         "<edit_file>",
         "<path>D:/path/to/file.txt</path>",
         "<old_text>text to replace</old_text>",
@@ -138,8 +149,8 @@ const PROFILES = [
         "",
         "## Rules",
         "- Always use ABSOLUTE paths (e.g. D:/project/file.ts, not ../file.ts)",
-        "- For listing files or searching code, ASK THE USER to run dir/ls or grep for you.",
-        "- When you need to read or edit a specific file, USE THE TOOLS above.",
+        "- When you need information about the project, USE THE TOOLS above.",
+        "- If a tool fails, try an alternative or ask the user.",
         "- Do NOT pretend to know file contents — read them first.",
         "- Do NOT write fake tool output — use the real tools.",
         "- If a tool fails, explain the error and try an alternative.",
@@ -417,6 +428,12 @@ function parseToolCalls(text) {
       regex: /<list_files>\s*<path>(.*?)<\/path>\s*<\/list_files>/gs,
     },
     {
+      tag: "list_files",
+    },
+    {
+      tag: "search_content",
+    },
+    {
       tag: "write_file",
       regex: /<write_file>\s*<path>(.*?)<\/path>\s*<content>(.*?)<\/content>\s*<\/write_file>/gs,
     },
@@ -443,6 +460,8 @@ function parseToolCalls(text) {
           start: match.index,
           end: match.index + match[0].length,
         });
+      } else if (pat.tag === "search_content") {
+        tools.push({ tag: pat.tag, params: { pattern: match[1], path: match[2] }, start: match.index, end: match.index + match[0].length });
       } else if (pat.tag === "write_file") {
         tools.push({
           tag: pat.tag,
@@ -503,6 +522,34 @@ async function executeTool(tag, params, sessionId, conn) {
         "]"
       );
     }
+  }
+
+  if (tag === "list_files") {
+    try {
+      var lfRes=await conn.createTerminal({sessionId:sessionId,command:"dir",args:["/b","/a",params.path],cwd:params.path,env:[]});
+      await new Promise(function(r){setTimeout(r,500)});
+      if(typeof conn.terminalOutput==="function"){
+        var lfOut=await conn.terminalOutput({sessionId:sessionId,terminalId:lfRes.terminalId});
+        await conn.releaseTerminal({sessionId:sessionId,terminalId:lfRes.terminalId});
+        return lfOut.output||"[empty]"
+      }
+      await conn.releaseTerminal({sessionId:sessionId,terminalId:lfRes.terminalId});
+      return "[Directory listed, but terminalOutput unavailable on this system. Try read_file on specific paths.]"
+    } catch(e){ return "[Error listing: "+e.message+"]" }
+  }
+
+  if (tag === "search_content") {
+    try {
+      var srRes=await conn.createTerminal({sessionId:sessionId,command:"findstr",args:["/s","/n","/i",params.pattern,params.path+"\*"],cwd:params.path,env:[]});
+      await new Promise(function(r){setTimeout(r,500)});
+      if(typeof conn.terminalOutput==="function"){
+        var srOut=await conn.terminalOutput({sessionId:sessionId,terminalId:srRes.terminalId});
+        await conn.releaseTerminal({sessionId:sessionId,terminalId:srRes.terminalId});
+        return srOut.output||"[no matches]"
+      }
+      await conn.releaseTerminal({sessionId:sessionId,terminalId:srRes.terminalId});
+      return "[Search submitted, but terminalOutput unavailable. Try read_file on specific files.]"
+    } catch(e){ return "[Error searching: "+e.message+"]" }
   }
 
   if (tag === "write_file") {
