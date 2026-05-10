@@ -485,7 +485,7 @@ function parseToolCalls(text) {
   return tools;
 }
 
-async function pollTerminalExit(conn, sessionId, terminalId, timeoutMs) { var start=Date.now(); while(Date.now()-start<timeoutMs){ var out=await conn.terminalOutput({sessionId:sessionId,terminalId:terminalId}); if(out.exitStatus) return out; await new Promise(function(r){setTimeout(r,300)}) } return await conn.terminalOutput({sessionId:sessionId,terminalId:terminalId}) }
+
 
 async function executeTool(tag, params, sessionId, conn) {
   console.error("[tool] " + tag + " " + JSON.stringify(params));
@@ -512,81 +512,6 @@ async function executeTool(tag, params, sessionId, conn) {
         e.message +
         "]"
       );
-    }
-  }
-
-  if (tag === "list_files") {
-    try {
-      var cmdResult = await Promise.race([
-        conn.createTerminal({sessionId:sessionId,command:"dir",args:["/b","/a",params.path],cwd:params.path,env:[]}),
-        new Promise(function (_, reject) {
-          setTimeout(function () {
-            reject(new Error("SSH_TIMEOUT"));
-          }, 5000);
-        }),
-      ]);
-
-      var terminalId = cmdResult.terminalId;
-      // Wait for command to finish
-      var output = await Promise.race([
-        pollTerminalExit(conn, sessionId, terminalId, 10000),
-        new Promise(function (_, reject) {
-          setTimeout(function () {
-            reject(new Error("SSH_TIMEOUT"));
-          }, 10000);
-        }),
-      ]);
-
-      // Get the output
-      var outResult = await conn.sendRequest({method:"terminal/output",params:{
-        sessionId: sessionId,
-        terminalId: terminalId,
-      }});
-      await conn.releaseTerminal({
-        sessionId: sessionId,
-        terminalId: terminalId,
-      });
-      return outResult.output || "[empty directory]";
-    } catch (e) {
-      return "[Error listing files: " + e.message + "]";
-    }
-  }
-
-  if (tag === "search_content") {
-    try {
-      var srResult = await Promise.race([
-        conn.createTerminal({
-          sessionId: sessionId,
-          command: "findstr",
-          args: ["/s", "/n", "/i", params.pattern, params.path + "\\*"],
-          cwd: params.path,
-          env: [],
-        }),
-        new Promise(function (_, reject) {
-          setTimeout(function () {
-            reject(new Error("SSH_TIMEOUT"));
-          }, 5000);
-        }),
-      ]);
-
-      var stId = srResult.terminalId;
-      await Promise.race([
-        conn.waitForTerminalExit({ sessionId: sessionId, terminalId: stId }),
-        new Promise(function (_, reject) {
-          setTimeout(function () {
-            reject(new Error("SSH_TIMEOUT"));
-          }, 10000);
-        }),
-      ]);
-
-      var srOut = await conn.sendRequest({method:"terminal/output",params:{
-        sessionId: sessionId,
-        terminalId: stId,
-      }});
-      await conn.releaseTerminal({ sessionId: sessionId, terminalId: stId });
-      return srOut.output || "[no matches]";
-    } catch (e) {
-      return "[Error searching: " + e.message + "]";
     }
   }
 
